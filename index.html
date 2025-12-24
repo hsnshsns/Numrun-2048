@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NumRun 2048 — Kids Color v3</title>
+  <style>
+    html, body { margin:0; padding:0; height:100%; overflow:hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background:#000; }
+    #hud { position: fixed; top: 12px; left: 12px; color: #fff; z-index: 10; user-select: none; text-shadow: 0 2px 10px rgba(0,0,0,.35); }
+    #hud .score { font-size: 30px; font-weight: 900; letter-spacing: 0.5px; }
+    #hud .sub { opacity: 0.95; font-size: 12px; margin-top: 6px; max-width: 72vw; }
+    #centerMsg { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; color:#fff; pointer-events:none; font-size: 44px; font-weight: 900; text-shadow: 0 8px 40px rgba(0,0,0,0.65); opacity:0; transition:opacity .35s ease; }
+    #ui { position: fixed; bottom: 16px; left:0; right:0; display:flex; justify-content:center; gap:16px; z-index: 10; }
+    .btn { background: rgba(255,255,255,.14); color:#fff; border:1px solid rgba(255,255,255,.25); padding:16px 20px; border-radius: 16px; font-weight:900; backdrop-filter: blur(8px); -webkit-tap-highlight-color: transparent; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+    .btn:active { transform: scale(0.97); }
+    #startBar { position: fixed; top: 0; left:0; right:0; display:flex; gap:10px; justify-content:center; padding:10px; z-index: 11; }
+    #startBtn { background:#ff6bd6; color:#fff; border:none; padding:10px 14px; border-radius:12px; font-weight:900; cursor:pointer; box-shadow:0 6px 20px rgba(255,107,214,.45); }
+    #legend { position: fixed; right: 10px; top: 10px; color:#fff; font-size:12px; line-height:1.3; background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.2); padding:10px; border-radius:12px; backdrop-filter: blur(6px); max-width: 186px; z-index:12; }
+    #legend b { display:inline-block; min-width:42px; }
+
+    #topRight{ position:fixed; top:10px; right:10px; z-index:13; display:flex; gap:8px; }
+    .miniBtn{
+      background: rgba(255,255,255,.14);
+      color:#fff; border:1px solid rgba(255,255,255,.25);
+      padding:10px 12px; border-radius:12px; font-weight:900;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 24px rgba(0,0,0,.2);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .miniBtn:active{ transform: scale(.98); }
+
+    .overlay{ position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+      background: rgba(0,0,0,.35); backdrop-filter: blur(6px);
+    }
+    .hidden{ display:none; }
+    .panel{
+      width:min(330px, 86vw); border-radius:18px; padding:18px;
+      background: rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.25);
+      box-shadow: 0 18px 60px rgba(0,0,0,.35); color:#fff; text-align:center;
+    }
+    .panel .title{ font-size:28px; font-weight:1000; margin-bottom:12px; }
+    .bigBtn{
+      width:100%; margin-top:10px; padding:14px 12px;
+      border-radius:14px; border:none; font-weight:1000;
+      background: rgba(255,255,255,.18); color:#fff;
+    }
+    .bigBtn:active{ transform:scale(.98); }
+    .hint{ font-size:12px; opacity:.9; margin-top:12px; line-height:1.4; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div class="score">Total: <span id="score">0</span></div>
+    <div class="sub">모바일: ◀ ▶ / 데스크톱: ← → | 숫자 큐브 먹으면 <b>총합</b> 증가 (플레이어 큐브에 표시) | MENU로 일시정지/뒤로가기</div>
+  </div>
+
+  <div id="topRight">
+    <button class="miniBtn" id="menuBtn">MENU</button>
+  </div>
+
+  <div id="legend"></div>
+  <div id="centerMsg">READY</div>
+  <div id="startBar"><button id="startBtn">Start / Reset</button></div>
+  <div id="ui">
+    <button class="btn" id="leftBtn">◀</button>
+    <button class="btn" id="rightBtn">▶</button>
+  </div>
+
+  <div id="menuOverlay" class="overlay hidden">
+    <div class="panel">
+      <div class="title">MENU</div>
+      <button class="bigBtn" id="resumeBtn">Resume</button>
+      <button class="bigBtn" id="restartBtn2">Restart</button>
+      <button class="bigBtn" id="backBtn">Back</button>
+      <div class="hint">Back은 브라우저 뒤로가기예요. (GitHub Pages에서 ‘뒤로’가 없으면 홈으로 이동하도록 바꿀 수 있어요)</div>
+    </div>
+  </div>
+
+  <canvas id="c"></canvas>
+
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script>
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 800);
+  camera.position.set(0, 7, 13);
+  camera.lookAt(0, 0, 0);
+
+  const hemi = new THREE.HemisphereLight(0xfff6e8, 0x223377, 1.15);
+  scene.add(hemi);
+  const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+  dir.position.set(6, 12, 8);
+  scene.add(dir);
+
+  // Day↔Night connected skydome
+  function makeSkyPanorama() {
+    const w = 2048, h = 1024;
+    const cvs = document.createElement('canvas');
+    cvs.width = w; cvs.height = h;
+    const ctx = cvs.getContext('2d');
+
+    // Day half
+    const gradDay = ctx.createLinearGradient(0, h, w/2, 0);
+    gradDay.addColorStop(0, '#8bd6ff');
+    gradDay.addColorStop(1, '#f2fbff');
+    ctx.fillStyle = gradDay;
+    ctx.fillRect(0, 0, w/2, h);
+
+    function puff(x, y, r, a=0.85) {
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(255,255,255,${a})`;
+      ctx.arc(x, y, r, 0, Math.PI*2);
+      ctx.arc(x+r*0.9, y-r*0.2, r*1.15, 0, Math.PI*2);
+      ctx.arc(x-r*0.9, y-r*0.2, r*0.95, 0, Math.PI*2);
+      ctx.fill();
+    }
+    for (let i=0; i<22; i++) {
+      const x = Math.random()*w*0.48 + 40;
+      const y = Math.random()*h*0.6 + 60;
+      const r = 28 + Math.random()*44;
+      puff(x, y, r, 0.78 + Math.random()*0.18);
+    }
+
+    // Night half
+    const gradNight = ctx.createLinearGradient(w/2, 0, w, h);
+    gradNight.addColorStop(0, '#1a1d66');
+    gradNight.addColorStop(1, '#050414');
+    ctx.fillStyle = gradNight;
+    ctx.fillRect(w/2, 0, w/2, h);
+
+    for (let i=0;i<900;i++) {
+      const x = w/2 + Math.random()*w/2;
+      const y = Math.random()*h;
+      const s = Math.random()*2.2 + 0.4;
+      ctx.fillStyle = `rgba(255,255,255,${0.55+Math.random()*0.45})`;
+      ctx.fillRect(x, y, s, s);
+    }
+
+    // Seam: aurora/rainbow band
+    const seamGrad = ctx.createLinearGradient(w/2-80, 0, w/2+80, 0);
+    seamGrad.addColorStop(0.0, 'rgba(255,45,85,0.22)');
+    seamGrad.addColorStop(0.33,'rgba(255,214,10,0.22)');
+    seamGrad.addColorStop(0.66,'rgba(52,199,89,0.22)');
+    seamGrad.addColorStop(1.0, 'rgba(10,132,255,0.22)');
+    ctx.fillStyle = seamGrad;
+    ctx.fillRect(w/2-90, 0, 180, h);
+
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.MirroredRepeatWrapping;
+    tex.repeat.set(2, 1);
+    tex.anisotropy = 8;
+    return tex;
+  }
+
+  const skyGeo = new THREE.SphereGeometry(320, 64, 32);
+  skyGeo.scale(-1, 1, 1);
+  const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ map: makeSkyPanorama() }));
+  scene.add(sky);
+
+  // Rainbow runway
+  const groundGeo = new THREE.PlaneGeometry(220, 900, 1, 1);
+  const ground = new THREE.Mesh(groundGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  ground.rotation.x = -Math.PI/2;
+  ground.position.z = -200;
+  scene.add(ground);
+
+  function makeRunwayTexture() {
+    const w = 96, h = 2048;
+    const cvs = document.createElement('canvas');
+    cvs.width = w; cvs.height = h;
+    const ctx = cvs.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    const stops = [
+      ['#ff2d55', 0], ['#ff9f0a', 0.16], ['#ffd60a', 0.32], ['#34c759', 0.48],
+      ['#0fd6ff', 0.64], ['#3b57ff', 0.80], ['#bf5af2', 1]
+    ];
+    for (const [c, s] of stops) grad.addColorStop(s, c);
+    ctx.fillStyle = grad; ctx.fillRect(0,0,w,h);
+
+    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 6;
+    for (let y=0; y<h; y+=110) {
+      ctx.beginPath(); ctx.moveTo(10, y+32); ctx.lineTo(w-10, y+32); ctx.stroke();
+    }
+
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(5.5, 1);
+    tex.anisotropy = 8;
+    return tex;
+  }
+  ground.material.map = makeRunwayTexture();
+  ground.material.needsUpdate = true;
+
+  // Number → cube color (vivid)
+  const numberColors = new Map([
+    [2,    '#ff3b30'],
+    [4,    '#ffd60a'],
+    [8,    '#34c759'],
+    [16,   '#0a84ff'],
+    [32,   '#001f54'],
+    [64,   '#6f2dbd'],
+    [128,  '#ff8ad6'],
+    [256,  '#20c997'],
+    [512,  '#2ecc71'],
+    [1024, '#ff1493'],
+  ]);
+
+  function colorForValue(n) {
+    if (n === 2048) return 'rainbow';
+    if (numberColors.has(n)) return numberColors.get(n);
+    const p = Math.log2(n);
+    const hue = (p * 41) % 360;
+    return `hsl(${hue}, 95%, 55%)`;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y,   x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x,   y+h, r);
+    ctx.arcTo(x,   y+h, x,   y,   r);
+    ctx.arcTo(x,   y,   x+w, y,   r);
+    ctx.closePath();
+  }
+
+  function makeNumberLabelTexture(text) {
+    const size = 512;
+    const cvs = document.createElement('canvas');
+    cvs.width = cvs.height = size;
+    const ctx = cvs.getContext('2d');
+    ctx.clearRect(0,0,size,size);
+
+    ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 18;
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    roundRect(ctx, 90, 90, size-180, size-180, 70);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+    ctx.lineWidth = 10;
+    roundRect(ctx, 90, 90, size-180, size-180, 70);
+    ctx.stroke();
+
+    let fontSize = 210;
+    ctx.font = `900 ${fontSize}px Fredoka, Nunito, system-ui`;
+    while (ctx.measureText(text).width > size*0.55 && fontSize > 90) {
+      fontSize -= 10;
+      ctx.font = `900 ${fontSize}px Fredoka, Nunito, system-ui`;
+    }
+    ctx.fillStyle = '#111';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, size/2, size/2);
+
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.anisotropy = 8;
+    return tex;
+  }
+
+  function makeRainbowColor() {
+    return new THREE.Color().setHSL(Math.random(), 0.95, 0.55);
+  }
+
+  function makeCubeMaterials(labelText, baseStyle) {
+    const labelTex = makeNumberLabelTexture(labelText);
+    const mats = [];
+    for (let i=0;i<6;i++) {
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: labelTex,
+        roughness: 0.35,
+        metalness: 0.12
+      });
+      if (baseStyle === 'rainbow') {
+        mat.color = makeRainbowColor();
+      } else if (typeof baseStyle === 'string' && baseStyle.startsWith('hsl')) {
+        const c = new THREE.Color(); c.setStyle(baseStyle); mat.color = c;
+      } else {
+        mat.color = new THREE.Color(baseStyle);
+      }
+      mats.push(mat);
+    }
+    return mats;
+  }
+
+  // Player cube (shows TOTAL)
+  const playerGeo = new THREE.BoxGeometry(2.2, 2.2, 2.2);
+  const player = new THREE.Mesh(playerGeo, makeCubeMaterials('0', 'rainbow'));
+  player.position.set(0, 1.2, 0);
+  scene.add(player);
+
+  function updatePlayerTotalTexture(totalText) {
+    player.material = makeCubeMaterials(totalText, 'rainbow');
+  }
+
+  // Score BigInt
+  const scoreEl = document.getElementById('score');
+  let score = 0n;
+  function setScore(v) {
+    score = v;
+    scoreEl.textContent = score.toString();
+    updatePlayerTotalTexture(score.toString());
+  }
+  setScore(0n);
+
+  // Pickups
+  const pickups = [];
+  const cubeGeo = new THREE.BoxGeometry(2.1, 2.1, 2.1);
+
+  function makePickup(n) {
+    const style = (n === 2048) ? 'rainbow' : colorForValue(n);
+    const mesh = new THREE.Mesh(cubeGeo, makeCubeMaterials(String(n), style));
+    mesh.position.y = 1.1;
+    mesh.userData = { value: BigInt(n), collected: false, style };
+    return mesh;
+  }
+
+  // More random + bigger numbers
+  function nextValue() {
+    const s = Number(score > 0n ? (score < 1_000_000n ? score : 1_000_000n) : 0n);
+    const basePow = clamp(Math.floor(Math.log2(s + 128)), 4, 28); // up to 2^28
+    const maxPow = Math.max(8, basePow);
+
+    const r = Math.random();
+    let pow;
+    if (r < 0.55) {
+      pow = 1 + Math.floor(Math.random() * Math.min(12, maxPow)); // small
+    } else if (r < 0.92) {
+      const lo = Math.min(7, maxPow);
+      const hi = Math.max(lo, maxPow - 4);
+      pow = lo + Math.floor(Math.random() * (hi - lo + 1)); // medium
+    } else {
+      const lo = Math.max(1, maxPow - 6);
+      pow = lo + Math.floor(Math.random() * (maxPow - lo + 1)); // jackpot
+    }
+    return 2 ** pow;
+  }
+
+  // Lanes
+  const LANES = [-3.2, 0, 3.2];
+  let currentLaneIdx = 1;
+  let targetX = LANES[currentLaneIdx];
+
+  function spawnPickup() {
+    const laneX = LANES[Math.floor(Math.random()*LANES.length)];
+    const zStart = -120;
+    const n = nextValue();
+    const m = makePickup(n);
+    m.position.set(laneX, 1.1, zStart);
+    scene.add(m);
+    pickups.push(m);
+  }
+
+  // Cute side characters
+  const friends = [];
+  function spawnFriend() {
+    const group = new THREE.Group();
+
+    const bodyCol = new THREE.Color().setHSL(Math.random(), 0.75, 0.70);
+    const body = new THREE.Mesh(new THREE.SphereGeometry(1.05, 24, 24), new THREE.MeshStandardMaterial({ color: bodyCol, roughness: 0.55 }));
+
+    const earL = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), new THREE.MeshStandardMaterial({ color: bodyCol }));
+    const earR = earL.clone();
+    earL.position.set(-0.75, 0.95, 0.0);
+    earR.position.set( 0.75, 0.95, 0.0);
+    earL.scale.set(1,1.2,0.9); earR.scale.set(1,1.2,0.9);
+
+    const eyeW = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+    const pupilM = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.2 });
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), eyeW);
+    const eyeR = eyeL.clone();
+    const pL = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 10), pupilM);
+    const pR = pL.clone();
+    eyeL.position.set(-0.35, 0.15, 0.95);
+    eyeR.position.set( 0.35, 0.15, 0.95);
+    pL.position.set(-0.35, 0.15, 1.06);
+    pR.position.set( 0.35, 0.15, 1.06);
+
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 12), new THREE.MeshStandardMaterial({ color: 0xfff1c9 }));
+    hand.position.set(1.05, 0.25, 0.2);
+
+    group.add(body, earL, earR, eyeL, eyeR, pL, pR, hand);
+
+    const side = (Math.random() < 0.5 ? -1 : 1);
+    const x = side * (6.6 + Math.random()*2.6);
+    group.position.set(x, 1.0, -140);
+    group.userData = { waveSeed: Math.random()*Math.PI*2 };
+    scene.add(group);
+    friends.push(group);
+  }
+
+  // Controls
+  function moveLeft(){ if (currentLaneIdx > 0) { currentLaneIdx--; targetX = LANES[currentLaneIdx]; } }
+  function moveRight(){ if (currentLaneIdx < LANES.length-1) { currentLaneIdx++; targetX = LANES[currentLaneIdx]; } }
+
+  window.addEventListener('keydown', (e)=>{
+    if (!running || paused) return;
+    if (e.key === 'ArrowLeft' || e.key === 'a') moveLeft();
+    if (e.key === 'ArrowRight' || e.key === 'd') moveRight();
+  });
+  document.getElementById('leftBtn').addEventListener('click', ()=>{ if(running && !paused) moveLeft(); });
+  document.getElementById('rightBtn').addEventListener('click', ()=>{ if(running && !paused) moveRight(); });
+
+  // Menu overlay
+  let paused = false;
+  const menuOverlay = document.getElementById('menuOverlay');
+  const menuBtn = document.getElementById('menuBtn');
+  const resumeBtn = document.getElementById('resumeBtn');
+  const restartBtn2 = document.getElementById('restartBtn2');
+  const backBtn = document.getElementById('backBtn');
+
+  function openMenu(){ paused = true; menuOverlay.classList.remove('hidden'); }
+  function closeMenu(){ paused = false; menuOverlay.classList.add('hidden'); }
+  menuBtn.addEventListener('click', openMenu);
+  resumeBtn.addEventListener('click', closeMenu);
+  restartBtn2.addEventListener('click', ()=>{ closeMenu(); resetGame(); });
+  backBtn.addEventListener('click', ()=>{ history.back(); });
+
+  // Legend
+  const legendEl = document.getElementById('legend');
+  const legendPairs = [2,4,8,16,32,64,128,256,512,1024,2048];
+  legendEl.innerHTML = legendPairs.map(v=>{
+    const c = (v===2048)? 'linear-gradient(90deg,#ff2d55,#ff9f0a,#ffd60a,#34c759,#0fd6ff,#3b57ff,#bf5af2)' : colorForValue(v);
+    const sw = `<span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:${c};vertical-align:middle;margin-right:6px;border:1px solid rgba(0,0,0,.15)"></span>`;
+    return `${sw}<b>${v}</b>`;
+  }).join('<br>');
+
+  // Collision
+  function intersects(a, b, radius = 1.8) {
+    const dx = a.position.x - b.position.x;
+    const dz = a.position.z - b.position.z;
+    return (dx*dx + dz*dz) < (radius*radius);
+  }
+
+  // Cute BGM (WebAudio)
+  let audioCtx = null;
+  function startBGM() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const bpm = 120, beat = 60/bpm;
+
+    function toneAt(t, freq, dur, gain=0.06, type='square') {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(gain, t+0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t+dur+0.05);
+    }
+
+    const scale = [523.25, 587.33, 659.25, 783.99, 880.00];
+    function scheduleLoop(base) {
+      for (let bar=0; bar<8; bar++) {
+        const bt = base + bar*4*beat;
+        toneAt(bt+0*beat, scale[0], 0.18, 0.055, 'square');
+        toneAt(bt+1*beat, scale[1], 0.18, 0.055, 'square');
+        toneAt(bt+2*beat, scale[3], 0.18, 0.055, 'square');
+        toneAt(bt+3*beat, scale[2], 0.18, 0.055, 'square');
+        toneAt(bt+0*beat, scale[0]/2, 0.26, 0.05, 'triangle');
+        toneAt(bt+2*beat, scale[3]/2, 0.26, 0.05, 'triangle');
+        toneAt(bt+1.5*beat, scale[4]*2, 0.12, 0.04, 'sine');
+      }
+    }
+
+    scheduleLoop(audioCtx.currentTime + 0.05);
+    setInterval(()=>{
+      if (!audioCtx) return;
+      scheduleLoop(audioCtx.currentTime + 0.05);
+    }, 8*4*beat*1000);
+  }
+
+  // Game state
+  let last = 0;
+  let speed = 14;
+  let spawnTimer = 0;
+  let friendTimer = 0;
+  let running = false;
+
+  const scoreFlash = document.getElementById('centerMsg');
+  function flashCenter(text) {
+    scoreFlash.textContent = text;
+    scoreFlash.style.opacity = 1;
+    clearTimeout(flashCenter._t);
+    flashCenter._t = setTimeout(()=>{ scoreFlash.style.opacity = 0; }, 650);
+  }
+
+  function resetGame() {
+    startBGM();
+    for (const p of pickups) scene.remove(p);
+    pickups.length = 0;
+    for (const f of friends) scene.remove(f);
+    friends.length = 0;
+
+    setScore(0n);
+    speed = 14;
+    spawnTimer = 0;
+    friendTimer = 0;
+    currentLaneIdx = 1;
+    targetX = LANES[currentLaneIdx];
+    player.position.set(targetX, 1.2, 0);
+    running = true;
+    paused = false;
+    menuOverlay.classList.add('hidden');
+    flashCenter('GO!');
+  }
+
+  document.getElementById('startBtn').addEventListener('click', resetGame);
+
+  // Intro
+  (function intro(){
+    running = false;
+    scoreFlash.textContent = 'READY';
+    scoreFlash.style.opacity = 1;
+  })();
+
+  // Animate
+  function tick(t) {
+    const dt = Math.min(0.033, (t - last) / 1000 || 0);
+    last = t;
+
+    sky.rotation.y += dt * 0.03;
+    player.position.y = 1.2 + Math.sin(t*0.004)*0.08;
+    player.rotation.y += dt * 0.7;
+
+    if (running && !paused) {
+      player.position.x += (targetX - player.position.x) * Math.min(1, dt*10);
+
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnPickup();
+        spawnTimer = Math.max(0.35, 0.95 - Math.min(1, Number(score)/4096));
+      }
+
+      friendTimer -= dt;
+      if (friendTimer <= 0) {
+        if (Math.random() < 0.85) spawnFriend();
+        friendTimer = 1.2 + Math.random()*1.2;
+      }
+
+      const rm = [];
+      for (const p of pickups) {
+        p.position.z += speed * dt;
+        p.rotation.x += dt * 0.6;
+        p.rotation.z += dt * 0.4;
+
+        if (p.userData.style === 'rainbow') {
+          const hue = (t*0.02) % 1;
+          for (const mat of p.material) mat.color.setHSL(hue, 0.95, 0.55);
+        }
+
+        if (!p.userData.collected && intersects(player, p, 2.1)) {
+          p.userData.collected = true;
+          setScore(score + p.userData.value);
+          flashCenter('+' + p.userData.value.toString());
+          p.scale.set(1.25,1.25,1.25);
+          rm.push(p);
+        } else if (p.position.z > 16) {
+          rm.push(p);
+        }
+      }
+      for (const p of rm) {
+        const i = pickups.indexOf(p);
+        if (i !== -1) pickups.splice(i,1);
+        scene.remove(p);
+      }
+
+      const rf = [];
+      for (const f of friends) {
+        f.position.z += speed * dt * 0.85;
+        const wv = Math.sin((t*0.006) + f.userData.waveSeed);
+        f.position.y = 1.0 + wv * 0.22;
+        f.rotation.y += dt * 0.35;
+        const hand = f.children[f.children.length-1];
+        hand.position.y = 0.25 + Math.max(0, wv) * 0.35;
+        if (f.position.z > 25) rf.push(f);
+      }
+      for (const f of rf) {
+        const i = friends.indexOf(f);
+        if (i !== -1) friends.splice(i,1);
+        scene.remove(f);
+      }
+
+      ground.position.z += speed * dt * 0.75;
+      if (ground.position.z > 0) ground.position.z = -200;
+
+      speed = Math.min(38, speed + dt * 0.24);
+    }
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  window.addEventListener('resize', ()=>{
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w/h;
+    camera.updateProjectionMatrix();
+  });
+  </script>
+</body>
+</html>
